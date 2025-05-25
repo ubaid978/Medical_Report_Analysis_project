@@ -1,0 +1,222 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Report Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <header class="bg-blue-600 text-white py-4 shadow-md">
+        <div class="container mx-auto px-4">
+            <h1 class="text-2xl font-bold">Medical Report Analyzer</h1>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8 flex-grow">
+        <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+            <!-- File Upload Section -->
+            <div class="mb-6">
+                <h2 class="text-xl font-semibold mb-4">Upload Medical Report</h2>
+                <div class="flex items-center justify-center w-full">
+                    <label class="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <svg class="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V8m0 0l-4 4m4-4l4 4m6 4v6m-6-3h12"></path>
+                            </svg>
+                            <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Click to upload</span> or drag and drop</p>
+                            <p class="text-xs text-gray-500">PDF, JPG, PNG, CSV, or Excel (MAX. 10MB)</p>
+                        </div>
+                        <input id="fileInput" type="file" class="hidden" accept=".pdf,.jpg,.jpeg,.png,.csv,.xls,.xlsx">
+                    </label>
+                </div>
+                <div id="fileName" class="mt-2 text-sm text-gray-600"></div>
+            </div>
+
+            <!-- Upload Button -->
+            <button id="uploadButton" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200">Analyze Report</button>
+
+            <!-- Loading Indicator -->
+            <div id="loading" class="hidden mt-4 text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                <p class="mt-2 text-gray-600">Analyzing your report...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="error" class="hidden mt-4 text-red-600"></div>
+
+            <!-- Results Section -->
+            <div id="results" class="hidden mt-6 fade-in">
+                <h2 class="text-xl font-semibold mb-4">Analysis Results</h2>
+                <div id="resultsContent" class="prose max-w-none"></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-white py-4">
+        <div class="container mx-auto px-4 text-center">
+            <p>&copy; 2025 Medical Report Analyzer. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileName');
+        const uploadButton = document.getElementById('uploadButton');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const results = document.getElementById('results');
+        const resultsContent = document.getElementById('resultsContent');
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                fileNameDisplay.textContent = `Selected file: ${fileInput.files[0].name}`;
+                uploadButton.disabled = false;
+            } else {
+                fileNameDisplay.textContent = '';
+                uploadButton.disabled = true;
+            }
+        });
+
+        uploadButton.addEventListener('click', async () => {
+            if (fileInput.files.length === 0) {
+                showError('Please select a file to upload.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            if (file.size > 10 * 1024 * 1024) {
+                showError('File size exceeds 10MB limit.');
+                return;
+            }
+
+            showLoading(true);
+            hideError();
+            hideResults();
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/extract', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to analyze report.');
+                }
+
+                const resultText = await response.text();
+                showResults(formatResults(resultText));
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        function showLoading(isLoading) {
+            loading.classList.toggle('hidden', !isLoading);
+            uploadButton.disabled = isLoading;
+        }
+
+        function showError(message) {
+            error.textContent = message;
+            error.classList.remove('hidden');
+        }
+
+        function hideError() {
+            error.textContent = '';
+            error.classList.add('hidden');
+        }
+
+        function showResults(formattedText) {
+            resultsContent.innerHTML = formattedText;
+            results.classList.remove('hidden');
+        }
+
+        function hideResults() {
+            results.classList.add('hidden');
+            resultsContent.innerHTML = '';
+        }
+
+        function formatResults(text) {
+            // Split the text into sections based on numbered headers
+            const sections = text.split(/\n(?=\d+\.\s)/);
+            let formatted = '';
+            sections.forEach(section => {
+                // Match section title (e.g., "1. Patient Information:")
+                const titleMatch = section.match(/^(\d+\.\s[^\n]+)/);
+                const content = section.replace(titleMatch ? titleMatch[0] : '', '').trim();
+                if (titleMatch) {
+                    formatted += `<h3 class="text-lg font-semibold mt-4">${titleMatch[0]}</h3>`;
+                    // Convert content to paragraphs, handling lists and newlines
+                    const paragraphs = content.split('\n').map(line => {
+                        if (line.startsWith('-') || line.startsWith('*')) {
+                            return `<li class="ml-4">${line.slice(2).trim()}</li>`;
+                        }
+                        return `<p>${line}</p>`;
+                    });
+                    formatted += paragraphs.join('');
+                } else {
+                    formatted += `<p>${section}</p>`;
+                }
+            });
+            return formatted;
+        }
+    </script>
+</body>
+</html>
